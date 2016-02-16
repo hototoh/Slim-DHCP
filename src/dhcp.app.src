@@ -1,0 +1,12 @@
+{application, dhcp,
+ [
+  {description, "DHCP server implemented by erlang"},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { dhcp_app, []}},
+  {env, []}
+ ]}.
