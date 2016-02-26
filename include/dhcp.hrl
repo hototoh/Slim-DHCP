@@ -127,11 +127,13 @@
 -record(dhcp_lease, {
 	  ip_addr   = {0,0,0,0} :: ip(),
 	  client_id = <<>> :: binary(),
+	  mac  = {0,0,0,0,0} :: ether(),
 	  flag      = 0 :: dhcp_lease_flag(),
 	  updated   = 0 ::integer()
 	 }).
 
 -record(dhcp_lease_state, {
+	  logger :: atom(),
 	  db :: dhcp_lease_db(),
 	  range = [] :: list(),
 	  expire = 0 :: integer()			

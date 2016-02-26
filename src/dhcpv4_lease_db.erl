@@ -3,18 +3,18 @@
 -include("dhcp.hrl").
 
 %% API
--export([create/3]).
+-export([create/4]).
 %% utils
 -export([gen_lease_entries/1]).
 
 -spec create(dhcp_lease_type(),
-	     atom(), 
+	     atom(), atom(), 
 	     dhcp:dhcp_lease_state())
 	    -> {ok, pid()} | ignore | {error, term()}.
-create(DBType, Name, State) ->
+create(DBType, Name, Logger, State) ->
     case DBType of
 	ets ->
-	    lease_ets:start_link(Name, State);
+	    lease_ets:start_link(Name, Logger, State);
 	_ ->
 	    io:format("Invalid LeaseDB type~n"),
 	    {error, "Invalid LeaseDB type"}

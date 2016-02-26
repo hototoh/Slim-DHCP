@@ -17,15 +17,8 @@
 		  config :: dhcp:dhcp_config(),
 		  db     :: dhcp_lease_db()
 		}).
-
--spec tup2list(tuple()) -> list().    
-tup2list(Tuple) ->
-    [ element(I, Tuple) ||
-	I <- lists:seq(1, tuple_size(Tuple))].
 			
 start_link(Name, Config, DB) ->
-    io:format("start_link, dhcpv4_server: ~s~n",
-	      [Name]),
     gen_server:start_link({local, Name}, ?MODULE, {Config, DB}, []).
 
 %%%==============================================
@@ -33,9 +26,7 @@ start_link(Name, Config, DB) ->
 %%%==============================================
 
 init(Args) ->
-    io:format("Args:  ~w~n", [Args]),
     {Config, DB} = Args,
-    %% {ok, Config} = dhcpv4_config:load(Args#dhcp_args.config),
     {ok, Socket} = gen_udp:open( 67, [binary,
 				      inet, 
 				      {broadcast, true},

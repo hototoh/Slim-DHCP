@@ -22,7 +22,7 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
-    io:format("Launch ~s~n", [?MODULE_STRING]),
+    lager:info("Slim-DHCP start."),
     {ok, { {one_for_one, 5, 10}, 
 	   [
 	    ?CHILD(dhcpv4_sup, supervisor)

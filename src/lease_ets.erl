@@ -8,7 +8,7 @@
 -include("dhcp.hrl").
 
 %% API
--export([start_link/2,request/2, get_time/0]).
+-export([start_link/3,request/2, get_time/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -30,16 +30,16 @@ request(DB, Request) ->
 	    {error, Reason}
     end.
 
-start_link(Name, State) ->
+start_link(Name, Logger, State) ->
     io:format("start_link, dhcpv4_lease: ~w ~w~n", [Name, State]),
-    gen_server:start_link({local, Name}, ?MODULE, {Name, State}, []).
+    gen_server:start_link({local, Name}, ?MODULE, {Name, Logger, State}, []).
 
-%%%==============================================================
+%%%=======================================================
 %%% gen_server callbacks
-%%%==============================================================
+%%%=======================================================
 
 init(Args) ->
-    {Name, State} = Args,
+    {Name, Logger, State} = Args,
     ets:new(Name, [named_table, {keypos, 2}]),
     InsertRange = 
 	fun(X) -> 
@@ -50,9 +50,10 @@ init(Args) ->
     %% Aging Timer
     erlang:send_after(?AGING_TIMER, self(), {self(), aging, {}}, []),
     {ok, State#dhcp_lease_state {
-		     db = Name
+	   logger = Logger,
+	   db = Name
 	  }}.
-        
+
 handle_call(_Request, _From, State) ->
     {reply, State}.
 
@@ -96,7 +97,6 @@ request(State, alloc, Request) ->
 	    {error, "alloc: no enable entry"};
 	_ ->
 	    TmpEntry    = hd(EnableEntries),
-	    io:format("alloc: ~w~n", [TmpEntry]),
 	    Expire = lease_ets:get_time() + State#dhcp_lease_state.expire,
 	    IPAddr = case Request#dhcp_lease.ip_addr of
 			 {0,0,0,0} ->
@@ -106,15 +106,18 @@ request(State, alloc, Request) ->
 		     end,
 	    case ets:update_element(State#dhcp_lease_state.db,
 				    IPAddr,
-				    [{3, Request#dhcp_lease.client_id},
-				     {4, tmp},
-				     {5, Expire}]) of
+				    [{3, Request#dhcp_lease.mac},
+				     {4, Request#dhcp_lease.client_id},
+				     {5, tmp},
+				     {6, Expire}]) of
 		false ->
-		    {error, "Failed to update element"};
+		    {error, "Failed to alloc element"};
 		true ->
 		    Results = ets:lookup(State#dhcp_lease_state.db,
 					 IPAddr),
-		    {ok, hd(Results)}		   
+		    Result = hd(Results),
+		    %% gen_server:cast(State#dhcp_lease_state.logger, {alloc, Result, Expire}),
+		    {ok, Result}		   
 	    end
     end;
 request(State, release, Request) ->
@@ -137,10 +140,11 @@ request(State, release, Request) ->
 	    TmpEntry = hd(UsedEntries),
 	    ets:update_element(State#dhcp_lease_state.db,
 			       TmpEntry#dhcp_lease.ip_addr,
-			       [{3, << >>},
-				{4, avail},
-				{5, 0}]),
-	    {ok, { }}
+			       [{3, {0,0,0,0,0,0}},
+				{4, << >>},
+				{5, avail},
+				{6, 0}])
+	    %% gen_server:cast(State#dhcp_lease_state.logger, {alloc, TmpEntry, 0}), {ok, { }}
     end;
 request(State, update, Request) ->
     UsedEntries = 
@@ -163,8 +167,9 @@ request(State, update, Request) ->
 	    Expire = lease_ets:get_time() + State#dhcp_lease_state.expire,
 	    ets:update_element(State#dhcp_lease_state.db,
 			       TmpEntry#dhcp_lease.ip_addr,
-			       [{4, Request#dhcp_lease.flag},
-				{5, Expire }]),	    
+			       [{5, Request#dhcp_lease.flag},
+				{6, Expire }]),
+	    %% gen_server:cast(State#dhcp_lease_state.logger, {update, TmpEntry, Expire}),
 	    {ok, TmpEntry#dhcp_lease {
 		   flag = Request#dhcp_lease.flag,
 		   updated = Expire
@@ -202,7 +207,6 @@ request(State, aging, _Request) ->
 		       -> X
 	    end
 	   )),
-    io:format("ExpiredEntries~n~w~n", [ExpiredEntries]), 
     ReleaseExpiredEntry = 
 	fun (X) ->
 		request(State, release, X)

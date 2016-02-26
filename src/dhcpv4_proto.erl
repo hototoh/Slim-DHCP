@@ -8,7 +8,8 @@
 
 -record(handle_options, {
 	  ip_addr = {0,0,0,0} :: dhcp:ip(),
-	  client_id = 0 :: dhcp:client_id(),
+	  client_type = 0 :: dhcp:client_id(),
+	  client_id = << >> :: binary(),
 	  mac = << >> :: binary(),
 	  message_type :: dhcp:message_type(),
 	  options = [] :: list()
@@ -342,13 +343,13 @@ decode(<<Op:8,
 		},
 	    {ok, DHCPPacket};
 	{ok, _Options} ->
-	    io:format("Unknown DHCP message type.~n"),
+	    lager:error("Unknown DHCP message type.~n"),
 	    {error, message_type};
 	{error} ->
-	    io:format("Invalid options~n."),
+	    lager:error("Invalid options~n."),
 	    {error, unknown};
 	Other ->
-	    io:format("Invalid options : ~w~n.", [Other])
+	    lager:error("Invalid options : ~w~n.", [Other])
     end;
 decode(_) ->
     {error, unknown}.
@@ -432,14 +433,18 @@ filled_client_ip_addr(ClientOptions, PacketInfo) ->
 			     dhcp:dhcp_packet()) ->
 				    dhcp:handle_options().
 filled_client_mac_addr(ClientOptions, PacketInfo) ->
-    case ClientOptions#handle_options.mac of
+    MACAddr = PacketInfo#dhcp_packet.chaddr,
+    case ClientOptions#handle_options.client_id of
 	<< >> ->
-	    MACAddr = PacketInfo#dhcp_packet.chaddr,
 	    ClientOptions#handle_options {
-	      client_id = 1,
+	      client_type = 1,
+	      client_id = tuple_to_binary(MACAddr),
 	      mac = tuple_to_binary(MACAddr)
 	     };
-	_  -> ClientOptions
+	_  -> 
+	    ClientOptions#handle_options {
+	      mac = tuple_to_binary(MACAddr)
+	     }
     end.
 
 -spec filled_handle_options(dhcp:handle_options(),
@@ -466,8 +471,8 @@ parse_options([{OptionName, OptionBody} | Next], ClientOptions) ->
 	dhcp_client_id ->
 	    << ClientId:8, MACAddr/binary >> = OptionBody,
 	    parse_options(Next, ClientOptions#handle_options{
-				  client_id = ClientId,
-				  mac       = MACAddr
+				  client_type = ClientId,
+				  client_id   = MACAddr
 				 });
 	dhcp_param_req_list ->
 	    GetAvailableValue = fun(X) -> 
@@ -494,31 +499,32 @@ handle_discover_packet(PacketInfo, ClientOptions, DB) ->
     %% ClientOptions has RequestedIPaddr option 
     %% checked it
     ReqIPAddr = ClientOptions#handle_options.ip_addr,
-    ClientId = ClientOptions#handle_options.mac,
+    ClientId = ClientOptions#handle_options.client_id,
+    MACAddr = ClientOptions#handle_options.mac,
     Entry = case ReqIPAddr of
 		{0,0,0,0} -> 
-		    ?debugHere,
 		    lease_ets:request(
 		      DB, 
 		      {alloc,
 		       #dhcp_lease {
-			  client_id = ClientId
+			  client_id = ClientId,
+			  mac = MACAddr
 			 }
 		      });
 		_ ->
-		    ?debugHere,
 		    lease_ets:request(
 		      DB, 
 		      {challenge,
 		       #dhcp_lease {    
 			  ip_addr = ReqIPAddr,
-			  client_id = ClientId
+			  client_id = ClientId,
+			  mac = MACAddr
 			 }
 		      })
 	    end,
     case Entry of 
 	{error, Reason} ->
-	    io:format("~w~n", [Reason]);
+	    lager:error("Failed to alloc ~w ~w~n", [ ip2str(ReqIPAddr) ,Reason]);
 	_ ->
 	    ok
     end,
@@ -533,10 +539,12 @@ handle_discover_packet(PacketInfo, ClientOptions, DB) ->
 			 lists:flatten([DefaultOptions,
 					ClientOptions#handle_options.options])
 			)],
+    lager:info("DISCOVER/OFFER: ~s is assigned to ~s",
+	       [ip2str(Entry#dhcp_lease.ip_addr), ether2str(MACAddr)]),
     P = PacketInfo#dhcp_packet{
 	  message_type = dhcpoffer,
 	  op      = 2,
-	  secs    = 0,
+	  secs    = 0,	  
 	  yiaddr  = Entry#dhcp_lease.ip_addr,
 	  options = Options
 	 },
@@ -545,7 +553,7 @@ handle_discover_packet(PacketInfo, ClientOptions, DB) ->
 -spec handle_request_state(dhcp:dhcp_packet(),
 			   dhcp:handle_options())
 			  -> atom().
-handle_request_state(PacketInfo, ClientOptions) ->
+handle_request_state(_PacketInfo, ClientOptions) ->
     HandleOptions = ClientOptions#handle_options.options,
     HasKey = fun(X) -> lists:any(fun(Y) ->
 					 Y == X
@@ -554,7 +562,7 @@ handle_request_state(PacketInfo, ClientOptions) ->
 	     end,
 		
     %% Broadcast = PacketInfo#dhcp_packet.flags,
-    %% not flag 255 or not
+    %% TODO : not flag 255 or not
     Broadcast = broadcast,
     ServerId  = HasKey(dhcp_server_id),
     ReqIPAddr = HasKey(dhcp_req_ip_addr),
@@ -575,12 +583,14 @@ handle_request_state(PacketInfo, ClientOptions) ->
 handle_request_packet(PacketInfo, ClientOptions, DB, dhcpnak) ->
     
     ReqIPAddr = ClientOptions#handle_options.ip_addr,
-    ClientId = ClientOptions#handle_options.mac,
+    ClientId = ClientOptions#handle_options.client_id,
+    MACAddr = ClientOptions#handle_options.mac,
     case  lease_ets:request(DB, 
 			    {release,
 			     #dhcp_lease {
 				ip_addr   = ReqIPAddr,
-				client_id = ClientId
+				client_id = ClientId, 
+				mac = MACAddr
 			       }}) of
 	{error, _Reason} ->
 	    ok;
@@ -626,13 +636,16 @@ handle_request_packet(PacketInfo, ClientOptions, _DB, _Other) ->
 handle_request_packet(PacketInfo, ClientOptions, DB) ->
     State = handle_request_state(PacketInfo, ClientOptions),
     ReqIPAddr = ClientOptions#handle_options.ip_addr,
-    ClientId = ClientOptions#handle_options.mac,
+    ClientId = ClientOptions#handle_options.client_id,
+    MACAddr = ClientOptions#handle_options.mac,
+
     ValidReqIP =
 	case lease_ets:request(DB, 
 			       {update,
 				#dhcp_lease {
 				   ip_addr = ReqIPAddr,
 				   client_id = ClientId,
+				   mac = MACAddr,
 				   flag = used
 				  }
 			       }) of
@@ -642,21 +655,33 @@ handle_request_packet(PacketInfo, ClientOptions, DB) ->
 		true
 	end,
 	
-    {DstAddress, ReqType} = case {State, ValidReqIP} of 
-				{error, _} ->
-				    {{255,255,255,255}, dhcpnak};
-				{_, false} ->
-				    {{255,255,255,255}, dhcpnak};
-				{renewing, _} ->
-				    {ReqIPAddr, renewing};
-				{selecting, _} ->
-				    {{255,255,255,255}, selecting};
-				{initreboot, _} ->
-				    {{255,255,255,255}, initreboot};
-				{rebinding, _} ->
-				    {{255,255,255,255}, {rebinding}}
-			    end,
-    io:format("~n~n ~w ~n~n", [ReqType]),
+    {DstAddress, ReqType} =
+	case {State, ValidReqIP} of 
+	    {error, _} ->
+		lager:info("REQUEST/NAK: refuse of the request: ~s from ~s",
+			   [ip2str(ReqIPAddr), ether2str(MACAddr)]),
+		{{255,255,255,255}, dhcpnak};
+	    {_, false} ->
+		lager:info("REQUEST/NAK: refuse the invalid request: ~s from ~s",
+			   [ip2str(ReqIPAddr), ether2str(MACAddr)]),
+		{{255,255,255,255}, dhcpnak};
+	    {renewing, _} ->
+		lager:info("REQUEST/ACK: renewing ~s from ~s",
+			   [ip2str(ReqIPAddr), ether2str(MACAddr)]),
+		{ReqIPAddr, renewing};
+	    {selecting, _} ->
+		lager:info("REQUEST/ACK: selecting ~s from ~s",
+			   [ip2str(ReqIPAddr), ether2str(MACAddr)]),
+		{{255,255,255,255}, selecting};
+	    {initreboot, _} ->
+		lager:info("REQUEST/ACK: initreboot ~s from ~s",
+			   [ip2str(ReqIPAddr), ether2str(MACAddr)]),
+		{{255,255,255,255}, initreboot};
+	    {rebinding, _} ->
+		lager:info("REQUEST/ACK: rebinding ~s from ~s",
+			   [ip2str(ReqIPAddr), ether2str(MACAddr)]),
+		{{255,255,255,255}, {rebinding}}
+	end,
     {ok, DstAddress,
      handle_request_packet(PacketInfo, ClientOptions, DB, ReqType)}.
     
@@ -665,6 +690,7 @@ handle_request_packet(PacketInfo, ClientOptions, DB) ->
 			   dhcp:dhcp_lease_state())
 			    -> {ok, ip(), dhcp:dhcp_packet()}.
 handle_inform_packet(PacketInfo, ClientOptions, _DB) ->
+    MACAddr = ClientOptions#handle_options.mac,
     DefaultOptions = [dhcp_server_id],
     _MustNotOptions = [dhcp_req_ip_addr, dhcp_max_dhcp_message_size,
 		       dhcp_param_req_list, dhcp_client_id, 
@@ -674,6 +700,8 @@ handle_inform_packet(PacketInfo, ClientOptions, _DB) ->
 			 lists:flatten([DefaultOptions,
 					ClientOptions#handle_options.options])
 			)],
+    lager:info("INFORM:  from ~s", [ether2str(MACAddr)]),
+	       %% [option2str(ClientOptions#handle_options.options), ether2str(MACAddr)]),
     P = PacketInfo#dhcp_packet{
 	  message_type = dhcpack,
 	  op      = 2,
@@ -682,6 +710,42 @@ handle_inform_packet(PacketInfo, ClientOptions, _DB) ->
 	 },
     {ok, PacketInfo#dhcp_packet.ciaddr, P}.
 
+-spec handle_release_packet(dhcp:dhcp_packet(),
+			   dhcp:handle_options(),
+			   dhcp:dhcp_lease_state())
+			    -> {ok, nothing, nothing}.
+handle_release_packet(PacketInfo, ClientOptions, DB) ->
+    MACAddr = ClientOptions#handle_options.mac,
+    IPAddr = PacketInfo#dhcp_packet.ciaddr,
+    ClientId = ClientOptions#handle_options.client_id,
+    lager:info("RELEASE: ~s from ~s", [ip2str(IPAddr), ether2str(MACAddr)]),
+    case  lease_ets:request(DB, 
+			    {release,
+			     #dhcp_lease {
+				ip_addr   = IPAddr,
+				client_id = ClientId, 
+				mac = MACAddr
+			       }}) of
+	{error, Reason} ->
+	    lager:error("Failed to release ~s : ~s",
+			[ip2str(IPAddr), Reason]);
+	_ ->
+	    ok
+    end,    		   
+    {ok, nothing, nothing}.
+
+option2str(Options) ->
+    "Ignore" .
+
+ip2str(IP) ->
+    {A, B, C, D} = IP,
+    io_lib:format("~B.~B.~B.~B", [A, B, C, D]).
+
+ether2str(MACAddr) ->
+    {A, B, C, D, E, F} = MACAddr,
+    io_lib:format("~.16B:~.16B:~.16B:~.16B:~.16B:~.16B",
+		  [A, B, C, D, E, F]).
+
 -spec handle_packet(dhcp:dhcp_packet(),
 		    dhcp:dhcp_config(),
 		    dhcp:dhcp_lease_db())
@@ -689,14 +753,18 @@ handle_inform_packet(PacketInfo, ClientOptions, _DB) ->
 handle_packet(PacketInfo, Config, DB) ->
     ParsedOptions = parse_options(PacketInfo#dhcp_packet.options),
     HandleOptions = filled_handle_options(ParsedOptions, PacketInfo),
+    MACAddr = HandleOptions#handle_options.mac,
     {ok, DstAddress, ReplyPacket} = 
 	case PacketInfo#dhcp_packet.message_type of 
 	    dhcpdecline ->
-		%% free tmp entry
+		%% don't free tmp entry
+		IPAddr = HandleOptions#handle_options.ip_addr,
+		lager:info("DECLINE: ~s from ~s",
+			   [ip2str(IPAddr), ether2str(MACAddr)]),
 		{ok, nothing, nothing};
 	    dhcprelease ->
 		%% free used entry
-		{ok, nothing, nothing};
+		handle_release_packet(PacketInfo, HandleOptions, DB);
 	    dhcpdiscover -> 
 		handle_discover_packet(PacketInfo, HandleOptions, DB);
 	    dhcprequest ->

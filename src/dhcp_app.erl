@@ -15,6 +15,9 @@
 %% =======================================================
 
 start(_StartType, _StartArgs) ->
+    {ok, [{handlers, LConfig}]} = application:get_env(dhcp, lager),       
+    application:load(lager),
+    application:set_env(lager, handlers, LConfig),
     application:start(lager),    
     dhcp_sup:start_link().
 
@@ -26,12 +29,8 @@ stop(_State) ->
 -ifdef(TEST).
 
 simple_test() ->
-    ?debugHere,
     ok = application:start(dhcp),
-    ?debugHere,
     {ok, Config} = dhcpv4_config:load(x),
-    ?debugHere,
-    ?debugHere,
     Tmp1 = lease_ets:request(eth0_lease, {alloc, #dhcp_lease{
 						     client_id = <<1,24,5 >>
 						   }}),
@@ -72,7 +71,7 @@ simple_test() ->
 %%     {ok, Config} = dhcpv4_config:load(x),
 %%     State = #dhcp_lease_state {
 %% 	       range = Range,
-%% 	       expire = maps:get(default_lease_time, Config#dhcp_config.options, err)
+%% 	       expire = maps:get(dhcp_ip_addr_lease_time, Config#dhcp_config.options, err)
 %% 	      },
 %%     register(leasedbtest, spawn_link(fun() -> dhcpv4_lease_db:create(ets, leasedbtest, State) end)),
 %%     Tmp1 = lease_ets:request(leasedbtest, {alloc, #dhcp_lease{
