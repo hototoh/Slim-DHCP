@@ -18,7 +18,8 @@ start(_StartType, _StartArgs) ->
     {ok, [{handlers, LConfig}]} = application:get_env(dhcp, lager),       
     application:load(lager),
     application:set_env(lager, handlers, LConfig),
-    application:start(lager),    
+    application:start(lager),
+    lager:info("Hello"),
     dhcp_sup:start_link().
 
 stop(_State) ->

@@ -8,24 +8,22 @@
 -spec load(string()) -> {ok, dhcp:dhcp_config()}.
 load(_FileName) ->
     {ok, #dhcp_config {
-	    options = maps:from_list(
-			[
-			 {addr, {192,168,1,1}},
-			 {range, [
-				  {{192,168,1,10}, {192,168,1,100}},
-
-				  {{192,168,1,110}, {192,168,1,200}}]},
-			 {default_lease_time, 600},
-			 {dhcp_server_id, {192,168,1,1}},
-			 {dhcp_subnet, {255,255,255,0}},
-			 {dhcp_domain_name_server, [
-						    {192,168,1,2},
-						    {192,168,2,2}
-						   ]},
-			 {dhcp_router, [ 
-					 {192,168,1,1},
-					 {192,168,2,1}
-				       ]},
-			 {dhcp_ip_addr_lease_time, 60}
-			]
-		       ) } }.
+        options = maps:from_list(
+            [
+             {addr, {203,178,156,6}},
+             {range, [
+                  {{203,178,156,50}, {203,178,156,251}},
+                  {{203,178,157,50}, {203,178,157,251}}
+                    ]},
+             {dhcp_server_id, {203,178,156,6}},
+             {dhcp_subnet, {255,255,254,0}},
+             {dhcp_domain_name_server, [
+                            {203,178,158,53},
+                            {203,178,158,54}
+                           ]},
+             {dhcp_router, [
+                     {203,178,156,1}
+                       ]},
+             {dhcp_ip_addr_lease_time, 600}
+            ]
+        ) } }.

@@ -2,8 +2,6 @@
 
 -export([encode/1, decode/1, handle_packet/3]).
 
--include_lib("eunit/include/eunit.hrl").
-
 -include("dhcp.hrl").
 
 -record(handle_options, {
@@ -567,8 +565,8 @@ handle_request_state(_PacketInfo, ClientOptions) ->
     ServerId  = HasKey(dhcp_server_id),
     ReqIPAddr = HasKey(dhcp_req_ip_addr),
     case {Broadcast, ServerId, ReqIPAddr} of
-	{unicast, false, false} ->
-	    renewing;
+	%{unicast, false, false} ->
+	%    renewing;
 	{broadcast, true, true} ->
 	    selecting;
 	{broadcast, false, true} ->
@@ -734,8 +732,8 @@ handle_release_packet(PacketInfo, ClientOptions, DB) ->
     end,    		   
     {ok, nothing, nothing}.
 
-option2str(Options) ->
-    "Ignore" .
+%% option2str(Options) ->
+%%     "Options" .
 
 ip2str(IP) ->
     {A, B, C, D} = IP,

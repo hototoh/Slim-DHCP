@@ -3,7 +3,6 @@
 -behavior(gen_server).
 
 -include_lib("stdlib/include/ms_transform.hrl").
--include_lib("eunit/include/eunit.hrl").
 
 -include("dhcp.hrl").
 
