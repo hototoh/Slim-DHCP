@@ -105,8 +105,8 @@ request(State, alloc, Request) ->
 		     end,
 	    case ets:update_element(State#dhcp_lease_state.db,
 				    IPAddr,
-				    [{3, Request#dhcp_lease.mac},
-				     {4, Request#dhcp_lease.client_id},
+				    [{3, Request#dhcp_lease.client_id},
+				     {4, Request#dhcp_lease.mac},
 				     {5, tmp},
 				     {6, Expire}]) of
 		false ->
@@ -139,8 +139,8 @@ request(State, release, Request) ->
 	    TmpEntry = hd(UsedEntries),
 	    ets:update_element(State#dhcp_lease_state.db,
 			       TmpEntry#dhcp_lease.ip_addr,
-			       [{3, {0,0,0,0,0,0}},
-				{4, << >>},
+			       [{3, << >>},
+				{4, {0,0,0,0,0,0}},
 				{5, avail},
 				{6, 0}])
 	    %% gen_server:cast(State#dhcp_lease_state.logger, {alloc, TmpEntry, 0}), {ok, { }}

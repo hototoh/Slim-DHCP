@@ -437,11 +437,11 @@ filled_client_mac_addr(ClientOptions, PacketInfo) ->
 	    ClientOptions#handle_options {
 	      client_type = 1,
 	      client_id = tuple_to_binary(MACAddr),
-	      mac = tuple_to_binary(MACAddr)
+	      mac = MACAddr
 	     };
 	_  -> 
 	    ClientOptions#handle_options {
-	      mac = tuple_to_binary(MACAddr)
+	      mac = MACAddr
 	     }
     end.
 
@@ -741,7 +741,7 @@ ip2str(IP) ->
 
 ether2str(MACAddr) ->
     {A, B, C, D, E, F} = MACAddr,
-    io_lib:format("~.16B:~.16B:~.16B:~.16B:~.16B:~.16B",
+    io_lib:format("~2.16.0B:~2.16.0B:~2.16.0B:~2.16.0B:~2.16.0B:~2.16.0B",
 		  [A, B, C, D, E, F]).
 
 -spec handle_packet(dhcp:dhcp_packet(),
