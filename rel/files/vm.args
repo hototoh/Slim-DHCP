@@ -1,7 +1,7 @@
 ## Name of the node
 -name dhcp@127.0.0.1
 
--s reloader
+## -s reloader
 
 ## Cookie for distributed erlang
 -setcookie dhcp
