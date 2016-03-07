@@ -15,13 +15,12 @@
 %% =======================================================
 
 start(_StartType, _StartArgs) ->
-    {ok, [{handlers, LConfig}]} = application:get_env(dhcp, lager),       
-    application:set_env(lager, handlers, LConfig),
-    lager:start(),
+    %% {ok, [{handlers, LConfig}]} = application:get_env(dhcp, lager),       
+    %% application:set_env(lager, handlers, LConfig),
+    %% lager:start(),
     dhcp_sup:start_link().
 
 stop(_State) ->
-    application:stop(lager),
     ok.
 
 

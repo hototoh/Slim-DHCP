@@ -11,6 +11,7 @@ load(_FileName) ->
         options = maps:from_list(
             [
              {addr, {203,178,156,6}},
+             {dets_path, "/var/db/dhcp/dhcpv4_lease"},
              {range, [
                   {{203,178,156,50}, {203,178,156,251}},
                   {{203,178,157,50}, {203,178,157,251}}
@@ -24,6 +25,6 @@ load(_FileName) ->
              {dhcp_router, [
                      {203,178,156,1}
                        ]},
-             {dhcp_ip_addr_lease_time, 600}
+             {dhcp_ip_addr_lease_time, 3600}
             ]
         ) } }.

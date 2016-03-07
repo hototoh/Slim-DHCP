@@ -1,4 +1,4 @@
--module(lease_ets).
+-module(lease_dets).
 
 -behavior(gen_server).
 
@@ -41,11 +41,11 @@ init(Args) ->
     {DBArgs, State} = Args,
     Name = DBArgs#lease_args.name,
     Path = DBArgs#lease_args.path,
-    ets:new(Name, [named_table, {keypos, 2}]),
+    {ok, Name} = dets:open_file(Name, [{file, Path}, {repair, force}, {keypos, 2}]),
     InsertRange = 
 	fun(X) -> 
 		Y = dhcpv4_lease_db:gen_lease_entries(X),
-		ets:insert(Name, Y)
+		dets:insert_new(Name, Y)
 	end,
     lists:map(InsertRange, State#dhcp_lease_state.range),
     %% Aging Timer
@@ -70,7 +70,8 @@ handle_info({Pid, Type, Request}, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 			      
-terminate(_Reason, _) ->
+terminate(_Reason, State) ->
+    dets:close(State#dhcp_lease_state.db),
     {ok, normal}.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -84,7 +85,7 @@ code_change(_OldVsn, State, _Extra) ->
 	      dhcp:dhcp_lease()) -> tuple().
 request(State, alloc, Request) ->
     EnableEntries =
-	ets:select(
+	dets:select(
 	  State#dhcp_lease_state.db,
 	  ets:fun2ms(
 	    fun (X = #dhcp_lease{flag = F})
@@ -97,23 +98,23 @@ request(State, alloc, Request) ->
 	    {error, "alloc: no enable entry"};
 	_ ->
 	    TmpEntry    = hd(EnableEntries),
-	    Expire = lease_ets:get_time() + State#dhcp_lease_state.expire,
+	    Expire = lease_dets:get_time() + State#dhcp_lease_state.expire,
 	    IPAddr = case Request#dhcp_lease.ip_addr of
 			 {0,0,0,0} ->
 			     TmpEntry#dhcp_lease.ip_addr;
 			 _ ->
 			     Request#dhcp_lease.ip_addr
 		     end,
-	    case ets:update_element(State#dhcp_lease_state.db,
-				    IPAddr,
-				    [{3, Request#dhcp_lease.client_id},
-				     {4, Request#dhcp_lease.mac},
-				     {5, tmp},
-				     {6, Expire}]) of
-		false ->
+	    case dets:insert(State#dhcp_lease_state.db,
+                         Request#dhcp_lease {
+                            ip_addr = IPAddr,
+                            flag    = tmp,
+                            updated = Expire }) of
+        {error, Reason} ->
+            lager:error("Failed to alloc element: ~s", [Reason]),
 		    {error, "Failed to alloc element"};
-		true ->
-		    Results = ets:lookup(State#dhcp_lease_state.db,
+		ok ->
+		    Results = dets:lookup(State#dhcp_lease_state.db,
 					 IPAddr),
 		    Result = hd(Results),
 		    {ok, Result}		   
@@ -121,7 +122,7 @@ request(State, alloc, Request) ->
     end;
 request(State, release, Request) ->
     UsedEntries =
-	ets:select(
+	dets:select(
 	  State#dhcp_lease_state.db,
 	  ets:fun2ms(
 	    fun (X = #dhcp_lease{ip_addr = IPAddr, 
@@ -137,16 +138,16 @@ request(State, release, Request) ->
 	    {error, "release: Not found entry"};	
 	_ ->	    
 	    TmpEntry = hd(UsedEntries),
-	    ets:update_element(State#dhcp_lease_state.db,
-			       TmpEntry#dhcp_lease.ip_addr,
-			       [{3, << >>},
-				{4, {0,0,0,0,0,0}},
-				{5, avail},
-				{6, 0}])
+	    dets:insert(State#dhcp_lease_state.db,
+                    TmpEntry#dhcp_lease {
+                      client_id = << >>,
+                      mac = {0,0,0,0,0,0},
+                      flag = avail,
+                      updated = 0 })
     end;
 request(State, update, Request) ->
     UsedEntries = 
-	ets:select(
+	dets:select(
 	  State#dhcp_lease_state.db,
 	  ets:fun2ms(
 	    fun (X = #dhcp_lease{ip_addr = IPAddr, 
@@ -162,18 +163,17 @@ request(State, update, Request) ->
 	    {error, "update: Not found entry"};	
 	_ ->	    
 	    TmpEntry = hd(UsedEntries),
-	    Expire = lease_ets:get_time() + State#dhcp_lease_state.expire,
-	    ets:update_element(State#dhcp_lease_state.db,
-			       TmpEntry#dhcp_lease.ip_addr,
-			       [{5, Request#dhcp_lease.flag},
-				{6, Expire }]),
+	    Expire = lease_dets:get_time() + State#dhcp_lease_state.expire,
+	    dets:insert(State#dhcp_lease_state.db,
+			       TmpEntry#dhcp_lease {
+				    updated = Expire }),
 	    {ok, TmpEntry#dhcp_lease {
 		   flag = Request#dhcp_lease.flag,
 		   updated = Expire
 		  }}
     end;
 request(State, challenge, Request) ->
-    Entries = ets:lookup(
+    Entries = dets:lookup(
 	      State#dhcp_lease_state.db,
 	      Request#dhcp_lease.ip_addr),
     
@@ -193,9 +193,9 @@ request(State, challenge, Request) ->
 	    end
     end;
 request(State, aging, _Request) ->
-    Expire = lease_ets:get_time(),
+    Expire = lease_dets:get_time(),
     ExpiredEntries = 
-	ets:select(
+	dets:select(
 	  State#dhcp_lease_state.db,
 	  ets:fun2ms(
 	    fun (X = #dhcp_lease{updated = U})

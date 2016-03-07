@@ -356,8 +356,8 @@ decode(_) ->
 decode_options(Options) ->
     decode_options(Options, []).
 
--spec decode_options(binary(), list()) -> {ok, list()} |
-					  error.
+-spec decode_options(binary(), list()) ->
+                {ok, list()} | error.
 decode_options(<<>>, Options) ->
     {ok, Options};
 decode_options(<<0:8, Next/binary>>, Options) ->    

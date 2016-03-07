@@ -94,7 +94,7 @@
 		       dhcp_end .
 
 %% implement lease_db by yourself
--type dhcp_lease_type() :: ets.
+-type dhcp_lease_type() :: ets | dets.
 
 -type dhcp_lease_db() :: atom().
 
@@ -133,7 +133,6 @@
 	 }).
 
 -record(dhcp_lease_state, {
-	  logger :: atom(),
 	  db :: dhcp_lease_db(),
 	  range = [] :: list(),
 	  expire = 0 :: integer()			
@@ -147,3 +146,7 @@
 	  config = "" :: string()
 	 }).
 	  
+-record(lease_args, {
+       name :: term(),
+       path :: file:filename()
+	 }).

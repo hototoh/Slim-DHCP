@@ -30,9 +30,12 @@ init(_Args) ->
 	       range  = maps:get(range, Config#dhcp_config.options, err),
 	       expire = maps:get(dhcp_ip_addr_lease_time, Config#dhcp_config.options, err)
 	      },
+    DBArgs = #lease_args {
+           name = dhcpv4_lease,
+           path = maps:get(dets_path, Config#dhcp_config.options, err)
+    },
     {ok, { {one_for_one, 5, 10}, 
 	   [
-	    {node0, {dhcpv4_server, start_link, [node0, Config, node0_lease]}, permanent, 5000, worker, [dhcpv4_server]},
-	    {node0_lease, {dhcpv4_lease_db, create, [ets, node0_lease, node0_log, State]}, permanent, 5000, worker, [lease_ets]}
-	    %% {node0_log, {dhcp_lease_logger, start_link, [node0]}, permanent, 5000, worker, [dynamic]}	    
+	    {dhcpv4, {dhcpv4_server, start_link, [node0, Config, dhcpv4_lease]}, permanent, 5000, worker, [dhcpv4_server]},
+	    {dhcpv4_lease, {dhcpv4_lease_db, create, [dets, DBArgs, State]}, permanent, 5000, worker, [lease_dets]}
 	   ]} }.

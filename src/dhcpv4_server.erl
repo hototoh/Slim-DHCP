@@ -49,7 +49,6 @@ handle_info(_Info, State) ->
 
 			      
 terminate(_Reason, Socket) ->
-    io:format("terminate~n"),
     ok = gen_udp:close(Socket#state.socket),
     {ok, normal}.
 
@@ -67,15 +66,20 @@ handle_packet(State, Packet) ->
 		dhcpv4_proto:handle_packet(PacketInfo,
 					   State#state.config,
 					   State#state.db),
-	    {ok, ReplyPacket} = dhcpv4_proto:encode(Reply),
-	    ok = gen_udp:send(State#state.socket,
-			      DstAddress,
-			      ?DHCP_DST_PORT, 
-			      ReplyPacket);
+        case Reply of 
+        nothing ->
+            ok;
+        _ ->
+	        {ok, ReplyPacket} = dhcpv4_proto:encode(Reply),
+	        ok = gen_udp:send(State#state.socket,
+			                  DstAddress,
+			                  ?DHCP_DST_PORT, 
+			                  ReplyPacket)
+        end;
 	{nothing} ->
 	    ok;
 	{error, _} ->
-	    io:format("PacketError~n")	    
+        lager:error("PacketError~n")	    
     end.
 
     
