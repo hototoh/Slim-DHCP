@@ -15,3 +15,8 @@ unit:
 clean:
 	./rebar3 clean
 
+dev:
+	make compile
+	make release
+	./_build/default/rel/dhcp/bin/dhcp console
+

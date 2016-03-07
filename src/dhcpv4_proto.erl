@@ -503,7 +503,7 @@ handle_discover_packet(PacketInfo, ClientOptions, DB) ->
     MACAddr = ClientOptions#handle_options.mac,
     Entry = case ReqIPAddr of
 		{0,0,0,0} -> 
-		    lease_ets:request(
+		    dhcpv4_lease_db:request(
 		      DB, 
 		      {alloc,
 		       #dhcp_lease {
@@ -512,7 +512,7 @@ handle_discover_packet(PacketInfo, ClientOptions, DB) ->
 			 }
 		      });
 		_ ->
-		    lease_ets:request(
+		    dhcpv4_lease_db:request(
 		      DB, 
 		      {challenge,
 		       #dhcp_lease {    
@@ -585,7 +585,7 @@ handle_request_packet(PacketInfo, ClientOptions, DB, dhcpnak) ->
     ReqIPAddr = ClientOptions#handle_options.ip_addr,
     ClientId = ClientOptions#handle_options.client_id,
     MACAddr = ClientOptions#handle_options.mac,
-    case  lease_ets:request(DB, 
+    case  dhcpv4_lease_db:request(DB, 
 			    {release,
 			     #dhcp_lease {
 				ip_addr   = ReqIPAddr,
@@ -640,7 +640,7 @@ handle_request_packet(PacketInfo, ClientOptions, DB) ->
     MACAddr = ClientOptions#handle_options.mac,
 
     ValidReqIP =
-	case lease_ets:request(DB, 
+	case dhcpv4_lease_db:request(DB, 
 			       {update,
 				#dhcp_lease {
 				   ip_addr = ReqIPAddr,
@@ -719,7 +719,7 @@ handle_release_packet(PacketInfo, ClientOptions, DB) ->
     IPAddr = PacketInfo#dhcp_packet.ciaddr,
     ClientId = ClientOptions#handle_options.client_id,
     lager:info("RELEASE: ~s from ~s", [ip2str(IPAddr), ether2str(MACAddr)]),
-    case  lease_ets:request(DB, 
+    case  dhcpv4_lease_db:request(DB, 
 			    {release,
 			     #dhcp_lease {
 				ip_addr   = IPAddr,

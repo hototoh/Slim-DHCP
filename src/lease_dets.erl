@@ -7,28 +7,17 @@
 -include("dhcp.hrl").
 
 %% API
--export([start_link/2,request/2, get_time/0]).
+-export([start_link/2, get_time/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--define(AGING_TIMER, 5000).
+-define(AGING_TIMER, 10000).
+
 %%%=======================================================
 %%% API function
 %%%=======================================================
--spec request(dhcp:dhcp_lease_state(), tuple())
-	     -> tuple().
-request(DB, Request) ->
-    {Type, Message} = Request,
-    whereis(DB) ! {self(), Type, Message},
-    receive 
-	{ok, Ret} ->
-	    Ret;
-	{error, Reason} ->
-	    {error, Reason}
-    end.
-
 start_link(DBArgs, State) ->
     Name = DBArgs#lease_args.name,
     gen_server:start_link({local, Name}, ?MODULE, {DBArgs, State}, []).
@@ -48,25 +37,26 @@ init(Args) ->
 		dets:insert_new(Name, Y)
 	end,
     lists:map(InsertRange, State#dhcp_lease_state.range),
-    %% Aging Timer
-    erlang:send_after(?AGING_TIMER, self(), {self(), aging, {}}, []),
+
+    %% Start Aging Timer
+    erlang:start_timer(?AGING_TIMER, self(), {self(), aging, {}}, []),
     {ok, State#dhcp_lease_state {
 	   db = Name
 	  }}.
 
-handle_call(_Request, _From, State) ->
-    {reply, State}.
+handle_call({Type, Message}, _From, State) ->
+    Reply = request(State, Type, Message),
+    {reply, Reply, State}.
 
 handle_cast(_Request, State) ->  
     {noreply, State}.
 
-handle_info({timeout, _Ref, {_Pid, Type, Request}}
-	   , State) ->
+handle_info({timeout, _Ref, {Pid, Type, Request}}, State)
+  when Pid == self() ->
     request(State, Type, Request),
+    erlang:start_timer(?AGING_TIMER, self(), {self(), aging, {}}, []),
     {noreply, State};
-handle_info({Pid, Type, Request}, State) ->
-    Pid ! request(State, Type, Request),
-    {noreply, State};
+
 handle_info(_Info, State) ->
     {noreply, State}.
 			      
@@ -166,7 +156,9 @@ request(State, update, Request) ->
 	    Expire = lease_dets:get_time() + State#dhcp_lease_state.expire,
 	    dets:insert(State#dhcp_lease_state.db,
 			       TmpEntry#dhcp_lease {
-				    updated = Expire }),
+				 flag = Request#dhcp_lease.flag,
+				 updated = Expire		 
+				}),
 	    {ok, TmpEntry#dhcp_lease {
 		   flag = Request#dhcp_lease.flag,
 		   updated = Expire
@@ -208,9 +200,30 @@ request(State, aging, _Request) ->
 	fun (X) ->
 		request(State, release, X)
 	end,
-    erlang:start_timer(?AGING_TIMER, self(), {self(), aging, {}}, []),
-    lists:map(ReleaseExpiredEntry, ExpiredEntries).
-    
+    lists:map(ReleaseExpiredEntry, ExpiredEntries),
+
+    EnableEntries =
+	dets:select(
+	  State#dhcp_lease_state.db,
+	  ets:fun2ms(
+	    fun (X = #dhcp_lease{flag = F})
+		  when F == avail 
+		       -> X
+	    end
+	   )),
+    UsedEntries =
+	dets:select(
+	  State#dhcp_lease_state.db,
+	  ets:fun2ms(
+	    fun (X = #dhcp_lease{flag = F})
+		  when F == used
+		       -> X
+	    end
+	   )),
+
+    lager:info("-- Lease information -- used: ~B, avail: ~B", 
+	       [length(UsedEntries), length(EnableEntries)]),
+    {ok, noreply}.   
 
 %%%=======================================================
 %%% misc function

@@ -3,7 +3,7 @@
 -include("dhcp.hrl").
 
 %% API
--export([create/3]).
+-export([create/3, request/2]).
 %% utils
 -export([gen_lease_entries/1]).
 
@@ -21,6 +21,19 @@ create(DBType, DBArgs, State) ->
 	    lager:error("Invalid LeaseDB type~n"),
 	    {error, "Invalid LeaseDB type"}
     end.
+
+-spec request(dhcp:dhcp_lease_state(), tuple())
+	     -> tuple().
+request(DB, Request) ->
+    {Type, Message} = Request,
+    Reply = gen_server:call(DB, {Type, Message}),
+    case Reply of
+	{ok, Ret} ->
+	    Ret;
+	{error, Reason} ->
+	    {error, Reason}
+    end.
+
     
 -spec ip_to_integer(dhcp:ip_addr()) -> integer().
 ip_to_integer(IP) ->
