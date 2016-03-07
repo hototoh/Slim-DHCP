@@ -375,14 +375,16 @@ decode_options(<<255:8,_/binary>>, Options) ->
     end;
 decode_options(<<Code:8, Len:8, Body/binary>>, Options) ->    
     << OptionBody:Len/binary, Next/binary >> = Body,
-    case dhcp_option_decode(Code) of
-	error ->
-	    error;
-	OptionName ->
-	    decode_options(Next,
-			   [ {OptionName, OptionBody} |
-			     Options])
-    end;
+    NewOptions = 
+	case dhcp_option_decode(Code) of
+	    error ->
+		lager:warning("not implemented option code: ~w",
+			      [Code]),
+		Options;
+	    OptionName ->
+		[ {OptionName, OptionBody} | Options]
+	end,
+    decode_options(Next, NewOptions);
 decode_options(_, _)->
     error.
 

@@ -40,7 +40,6 @@ start_link(DBArgs, State) ->
 init(Args) ->
     {DBArgs, State} = Args,
     Name = DBArgs#lease_args.name,
-    Path = DBArgs#lease_args.path,
     ets:new(Name, [named_table, {keypos, 2}]),
     InsertRange = 
 	fun(X) -> 

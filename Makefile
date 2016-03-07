@@ -1,22 +1,17 @@
-.PHONY: deps
+.PHONY: 
 
-all: deps compile
+all: compile
 
 compile:
-	./rebar compile skip_deps=true
+	./rebar3 compile 
+	cd _build/default/lib/syslog/ && ./rebar compile && cd -
 
-xref:
-	./rebar xref skip_deps=true
-
-generate:
-	./rebar generate
-
-deps:
-	./rebar get-deps
+release:
+	./rebar3 release
 
 unit:
-	./rebar eunit
+	./rebar3 eunit
 
 clean:
-	./rebar clean
+	./rebar3 clean
 

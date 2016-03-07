@@ -81,5 +81,4 @@ handle_packet(State, Packet) ->
 	{error, _} ->
         lager:error("PacketError~n")	    
     end.
-
     
