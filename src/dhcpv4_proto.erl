@@ -1,10 +1,11 @@
 -module(dhcpv4_proto).
 
--export([encode/1, decode/1, handle_packet/3]).
+-export([encode/1, decode/2, handle_packet/3]).
 
 -include("dhcp.hrl").
 
 -record(handle_options, {
+	  req_option = false :: boolean(),
 	  ip_addr = {0,0,0,0} :: dhcp:ip(),
 	  client_type = 0 :: dhcp:client_id(),
 	  client_id = << >> :: binary(),
@@ -297,9 +298,10 @@ encode(PacketInfo) ->
 %%% decode function
 %%%==============================================================
 
--spec decode(binary()) -> {ok, dhcp:dhcp_packet()} |
-			  {error, message_type} |
-			  {error, unknown}.
+-spec decode(binary(), dhcp:ip()) 
+	    -> {ok, dhcp:dhcp_packet()} |
+	       {error, message_type} |
+	       {error, unknown}.
 decode(<<Op:8,
 	 Htype:8,
 	 Hlen:8,
@@ -316,12 +318,22 @@ decode(<<Op:8,
 	 SName:64/binary,
 	 File:128/binary,
 	 99:8, 130:8, 83:8, 99:8,
-	 PackedOptions/binary>>
-	) when Op == 1 ->
+	 PackedOptions/binary>>, SrcIP
+      ) when Op == 1 ->
+    %% XXX
+    %% This is not right. But erlang dst IP address can not be
+    %% checked when using udp socket. so need to reimplement using
+    %% raw socket API.
+    Broadcast = 
+	case SrcIP of
+	    {0, 0, 0, 0} -> broadcast;
+	    _ -> unicast
+	end,
     case decode_options(PackedOptions) of 
 	{ok, MessageType, Options} ->
 	    DHCPPacket =  #dhcp_packet
 		{
+		  broadcast = Broadcast,
 		  message_type = MessageType,
 		  op      = Op,
 		  htype   = Htype,
@@ -349,7 +361,7 @@ decode(<<Op:8,
 	Other ->
 	    lager:error("Invalid options : ~w~n.", [Other])
     end;
-decode(_) ->
+decode(_, _) ->
     {error, unknown}.
 
 -spec decode_options(binary()) -> {ok, list()} | error.
@@ -397,19 +409,19 @@ decode_options(_, _)->
 filled_packet_options(PacketInfo, Config) ->
     RequestedOptions = PacketInfo#dhcp_packet.options,
     GetAvailableValue =
-	fun(Items) ->
-		{Key, Value} = Items,
-		case Value of
-		    undefine ->
-			Option = maps:get(Key, Config#dhcp_config.options, error),
-			case Option of
-			    error  ->
-				false;
-			    Option -> {true, {Key, Option}}
-			end;
-		    _ ->
-			{true, {Key, Value}}
-		end
+	fun(Items)
+	   -> {Key, Value} = Items,
+	      case Value of
+		  undefine ->
+		      Option = maps:get(Key, Config#dhcp_config.options, error),
+		      case Option of
+			  error  ->
+			      false;
+			  Option -> {true, {Key, Option}}
+		      end;
+		  _ ->
+		      {true, {Key, Value}}
+	      end
 	end,
 
     ReplyOptions = lists:filtermap(GetAvailableValue, RequestedOptions),
@@ -466,6 +478,7 @@ parse_options([{OptionName, OptionBody} | Next], ClientOptions) ->
     case OptionName of 
 	dhcp_req_ip_addr ->
 	    parse_options(Next, ClientOptions#handle_options{
+				  req_option = true,
 				  ip_addr = binary_to_tuple(OptionBody)
 				 });
 	dhcp_client_id ->
@@ -553,7 +566,7 @@ handle_discover_packet(PacketInfo, ClientOptions, DB) ->
 -spec handle_request_state(dhcp:dhcp_packet(),
 			   dhcp:handle_options())
 			  -> atom().
-handle_request_state(_PacketInfo, ClientOptions) ->
+handle_request_state(PacketInfo, ClientOptions) ->
     HandleOptions = ClientOptions#handle_options.options,
     HasKey = fun(X) -> lists:any(fun(Y) ->
 					 Y == X
@@ -561,17 +574,16 @@ handle_request_state(_PacketInfo, ClientOptions) ->
 				 HandleOptions)
 	     end,
 		
-    %% Broadcast = PacketInfo#dhcp_packet.flags,
-    %% TODO : not flag 255 or not
-    Broadcast = broadcast,
+    Broadcast = PacketInfo#dhcp_packet.broadcast,
     ServerId  = HasKey(dhcp_server_id),
-    ReqIPAddr = HasKey(dhcp_req_ip_addr),
+    ReqIPAddr = ClientOptions#handle_options.req_option,
     case {Broadcast, ServerId, ReqIPAddr} of
-	%{unicast, false, false} ->
-	%    renewing;
+	{unicast, false, false} ->
+	    renewing;
 	{broadcast, true, true} ->
 	    selecting;
-	{broadcast, false, true} ->
+	%% {broadcast , false, true} ->
+	{_ , false, true} ->	    
 	    initreboot;
 	{broadcast, false, false} ->
 	    rebinding;
@@ -658,7 +670,7 @@ handle_request_packet(PacketInfo, ClientOptions, DB) ->
     {DstAddress, ReqType} =
 	case {State, ValidReqIP} of 
 	    {error, _} ->
-		lager:info("REQUEST/NAK: refuse of the request: ~s from ~s",
+		lager:info("REQUEST/NAK: refuse the request: ~s from ~s",
 			   [ip2str(ReqIPAddr), ether2str(MACAddr)]),
 		{{255,255,255,255}, dhcpnak};
 	    {_, false} ->
@@ -666,9 +678,16 @@ handle_request_packet(PacketInfo, ClientOptions, DB) ->
 			   [ip2str(ReqIPAddr), ether2str(MACAddr)]),
 		{{255,255,255,255}, dhcpnak};
 	    {renewing, _} ->
-		lager:info("REQUEST/ACK: renewing ~s from ~s",
-			   [ip2str(ReqIPAddr), ether2str(MACAddr)]),
-		{ReqIPAddr, renewing};
+		case PacketInfo#dhcp_packet.flags of
+		    broadcast ->
+			lager:info("REQUEST/ACK: renewing ~s from ~s broadcast",
+				   [ip2str(ReqIPAddr), ether2str(MACAddr)]),
+			{{255,255,255,255}, renewing};
+		    unicast ->
+			lager:info("REQUEST/ACK: renewing ~s from ~s",
+				   [ip2str(ReqIPAddr), ether2str(MACAddr)]),
+			{ReqIPAddr, renewing}
+		end;
 	    {selecting, _} ->
 		lager:info("REQUEST/ACK: selecting ~s from ~s",
 			   [ip2str(ReqIPAddr), ether2str(MACAddr)]),
@@ -734,9 +753,6 @@ handle_release_packet(PacketInfo, ClientOptions, DB) ->
     end,    		   
     {ok, nothing, nothing}.
 
-%% option2str(Options) ->
-%%     "Options" .
-
 ip2str(IP) ->
     {A, B, C, D} = IP,
     io_lib:format("~B.~B.~B.~B", [A, B, C, D]).
@@ -754,7 +770,7 @@ handle_packet(PacketInfo, Config, DB) ->
     ParsedOptions = parse_options(PacketInfo#dhcp_packet.options),
     HandleOptions = filled_handle_options(ParsedOptions, PacketInfo),
     MACAddr = HandleOptions#handle_options.mac,
-    {ok, DstAddress, ReplyPacket} = 
+    {ok, DstIP, ReplyPacket} = 
 	case PacketInfo#dhcp_packet.message_type of 
 	    dhcpdecline ->
 		%% don't free tmp entry
@@ -776,5 +792,5 @@ handle_packet(PacketInfo, Config, DB) ->
 	nothing ->
 	    {ok, nothing, nothing};
 	_ ->
-	    {ok, DstAddress, filled_packet_options(ReplyPacket, Config)}
+	    {ok, DstIP, filled_packet_options(ReplyPacket, Config)}
     end.

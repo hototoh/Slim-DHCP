@@ -133,7 +133,12 @@ request(State, release, Request) ->
                       client_id = << >>,
                       mac = {0,0,0,0,0,0},
                       flag = avail,
-                      updated = 0 })
+                      updated = 0 }),
+        {ok, TmpEntry#dhcp_lease {
+                      client_id = << >>,
+                      mac = {0,0,0,0,0,0},
+                      flag = avail,
+                      updated = 0 }}
     end;
 request(State, update, Request) ->
     UsedEntries = 

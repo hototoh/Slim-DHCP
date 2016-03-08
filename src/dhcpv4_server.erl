@@ -40,8 +40,8 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 	
-handle_info({udp, _Socket, _IP, _InPortNo, Packet}, State) ->
-    spawn(fun () -> handle_packet(State, Packet) end),
+handle_info({udp, _Socket, IP, _InPortNo, Packet}, State) ->
+    spawn(fun () -> handle_packet(State, IP, Packet) end),
     {noreply, State};
 
 handle_info(_Info, State) ->
@@ -58,24 +58,25 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=======================================================
 %%% private function
 %%%=======================================================
-handle_packet(State, Packet) ->
-    DecodePacket = dhcpv4_proto:decode(Packet),
+handle_packet(State, SrcIP, Packet) ->
+    DecodePacket = dhcpv4_proto:decode(Packet, SrcIP),
     case DecodePacket of
 	{ok, PacketInfo} ->
 	    {ok, DstAddress, Reply} =
 		dhcpv4_proto:handle_packet(PacketInfo,
 					   State#state.config,
 					   State#state.db),
-        case Reply of 
-        nothing ->
-            ok;
-        _ ->
-	        {ok, ReplyPacket} = dhcpv4_proto:encode(Reply),
-	        ok = gen_udp:send(State#state.socket,
-			                  DstAddress,
-			                  ?DHCP_DST_PORT, 
-			                  ReplyPacket)
-        end;
+	    case Reply of 
+		nothing ->
+		    ok;
+		_ ->
+		    {ok, ReplyPacket} =
+			dhcpv4_proto:encode(Reply),
+		    ok = gen_udp:send(State#state.socket,
+				      DstAddress,
+				      ?DHCP_DST_PORT, 
+				      ReplyPacket)
+	    end;
 	{nothing} ->
 	    ok;
 	{error, _} ->

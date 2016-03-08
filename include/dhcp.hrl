@@ -106,6 +106,7 @@
    avail | tmp | used | static .
 
 -record(dhcp_packet, {
+	  broadcast = broadcast :: dhcp_flags(),
 	  message_type = -1 :: message_type(),
 	  op      = 0 :: request,
 	  htype   = 0 :: byte(),
