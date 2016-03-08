@@ -189,7 +189,7 @@ encode_option(OptionName, Body) ->
 	byte  ->
 	    << OptionCode:8, 1:8, Body:8 >>;
 	string ->
-	    BinBody = << Body/binary >>, 
+	    BinBody = list_to_binary(Body), 
 	    BinSize = size(BinBody),
 	    << OptionCode:8, BinSize:8, BinBody/binary >>;
 	int16_t -> 
